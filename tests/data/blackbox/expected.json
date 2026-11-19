@@ -1,0 +1,83 @@
+{
+ "LOG00037.BFL.gz": [
+  {
+   "rows": 16774,
+   "fields": 42,
+   "sums": {
+    "time": 7728113963287,
+    "gyroADC[0]": 2617,
+    "gyroADC[1]": -5645,
+    "motor[0]": 13178869,
+    "motor[3]": 12439591,
+    "rcCommand[3]": 22075239,
+    "vbatLatest": 36676543
+   },
+   "events": 3,
+   "clean_end": true
+  }
+ ],
+ "btfl_001.bbl.gz": [
+  {
+   "rows": 98,
+   "fields": 35,
+   "sums": {
+    "time": 3244679173,
+    "gyroADC[0]": -4,
+    "gyroADC[1]": 1,
+    "motor[0]": 15719,
+    "motor[3]": 15754,
+    "rcCommand[3]": 98000,
+    "vbatLatest": 241130
+   },
+   "events": 4,
+   "clean_end": true
+  },
+  {
+   "rows": 24893,
+   "fields": 35,
+   "sums": {
+    "time": 5398591543658,
+    "gyroADC[0]": -55286,
+    "gyroADC[1]": -6556,
+    "motor[0]": 6252029,
+    "motor[3]": 6542072,
+    "rcCommand[3]": 24893000,
+    "vbatLatest": 60548369
+   },
+   "events": 4,
+   "clean_end": true
+  }
+ ],
+ "crashing-LOG00002.BFL.gz": [
+  {
+   "rows": 171630,
+   "fields": 32,
+   "sums": {
+    "time": 10487336938649,
+    "gyroADC[0]": 414522,
+    "gyroADC[1]": -1101523,
+    "motor[0]": 229123535,
+    "motor[3]": 202394143,
+    "rcCommand[3]": 198351881
+   },
+   "events": 1,
+   "clean_end": true
+  }
+ ],
+ "inav-LOG00004-first3MB.TXT.gz": [
+  {
+   "rows": 42923,
+   "fields": 80,
+   "sums": {
+    "time": 6624623247988,
+    "gyroADC[0]": 59679,
+    "gyroADC[1]": -32311,
+    "motor[0]": 60002424,
+    "rcCommand[3]": 59883823,
+    "vbat": 66380097
+   },
+   "events": 4,
+   "clean_end": false
+  }
+ ]
+}
