@@ -35,6 +35,19 @@ button:disabled{opacity:.5;cursor:wait}
 .bar a{font-size:14px;color:var(--accent);text-decoration:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px}
 iframe{width:100%;height:80vh;border:1px solid var(--line);border-radius:10px;background:#fff}
 .privacy{margin:28px 0 10px;font-size:13px;color:var(--muted)}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:22px 0 14px}
+.or:before,.or:after{content:"";flex:1;border-top:1px solid var(--line)}
+#fc{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+#fc h2{font-size:16px;margin:0 0 4px}
+#fc p{margin:4px 0;color:var(--muted);font-size:14px}
+.btn{font:inherit;font-size:14px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;padding:7px 14px;cursor:pointer}
+.btn.ghost{background:#fff;color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+#fcinfo{font-weight:600;color:var(--ink)}
+#fclogs{margin:10px 0 0;font-size:14px;border-collapse:collapse;width:100%}
+#fclogs td{padding:4px 8px;border-top:1px solid var(--line)}
+progress{width:100%;height:8px;margin-top:10px;display:none}
 footer{max-width:960px;margin:0 auto;padding:10px 20px 40px;font-size:13px;color:var(--muted)}
 footer a{color:var(--muted)}
 </style>
@@ -57,6 +70,18 @@ footer a{color:var(--muted)}
     <button data-sample="px4_gps_loss.ulg.gz">GPS loss (PX4)</button>
     <button data-sample="compass_interference.bin.gz">Compass interference (ArduPilot)</button>
   </div>
+  <div class="or">or pull the log straight off the flight controller</div>
+  <section id="fc">
+    <h2>Connect a flight controller over USB</h2>
+    <p id="fcnote">Plug the board in, close Betaflight / INAV Configurator or Mission Planner (they hold the port), then connect. Works in Chrome and Edge.</p>
+    <div class="row"><button class="btn" id="fcconnect">Connect flight controller</button><button class="btn ghost" id="fcdisconnect" style="display:none">Disconnect</button></div>
+    <p id="fcinfo"></p>
+    <p id="fcstorage"></p>
+    <table id="fclogs"></table>
+    <div class="row" id="fcactions"></div>
+    <progress id="fcprogress" max="1" value="0"></progress>
+    <p id="fcprogresstext"></p>
+  </section>
   <div id="status"><div class="spin"></div><span id="statustext">Starting</span></div>
   <div id="error"></div>
   <section id="result">
@@ -66,7 +91,8 @@ footer a{color:var(--muted)}
   <p class="privacy">Your log stays on your computer: Python runs inside the browser through WebAssembly (Pyodide), so the first run downloads about 30 MB of libraries, then it is cached. Diagnosis is automated; confirm it on the craft before you fly again.</p>
 </main>
 <footer>Open source on <a href="https://github.com/colaco1123/flightdoc">GitHub</a>. Got a crash log with a known cause that flightdoc gets wrong? <a href="https://github.com/colaco1123/flightdoc/issues">Open an issue</a>.</footer>
-<script>
+<script type="module">
+import { Link, detect, mspStorage, mspDownload, mspRebootToMassStorage, mavListLogs, mavDownload } from "./fc.js";
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
 const drop = $("drop"), file = $("file"), statusEl = $("status"), statusText = $("statustext");
@@ -97,9 +123,17 @@ worker.onmessage = (ev) => {
   else if (m.type === "error") { setBusy(false); pending = null; showError("Could not analyse this file: " + m.text); console.error(m.detail); }
   else if (m.type === "result") {
     setBusy(false); pending = null;
-    const first = m.summary[0];
-    $("verdict").textContent = first ? first.verdict + (m.summary.length > 1 ? `  (+${m.summary.length - 1} more flights in the report)` : "")
-                                     : "No flights found in this file.";
+    // lead with the worst flight, not just the first one
+    const rank = (x) => (x.incident ? 2 : 0) + (x.causes.some((c) => c.severity === "critical") ? 2 :
+                        x.causes.some((c) => c.severity === "warning") ? 1 : 0);
+    const flights = m.summary;
+    const bad = flights.filter((x) => rank(x) > 0);
+    const worst = [...flights].sort((a, b) => rank(b) - rank(a))[0];
+    let headline = "No flights found in this file.";
+    if (worst && flights.length === 1) headline = worst.verdict;
+    else if (worst && !bad.length) headline = `${flights.length} flights, no problems found.`;
+    else if (worst) headline = `${flights.length} flights, ${bad.length} with problems. Worst, flight ${worst.session + 1}: ${worst.verdict}`;
+    $("verdict").textContent = headline;
     const blob = new Blob([m.html], { type: "text/html" });
     if (lastUrl) URL.revokeObjectURL(lastUrl);
     lastUrl = URL.createObjectURL(blob);
@@ -143,6 +177,164 @@ document.querySelectorAll(".samples button").forEach(b => b.addEventListener("cl
     run(name, await r.arrayBuffer());
   } catch (err) { setBusy(false); showError("Could not fetch the sample: " + err.message); }
 }));
+
+// ------------------------------------------------------------ USB connection
+const fcEl = (id) => document.getElementById(id);
+let port = null, reader = null, writer = null, link = null;
+
+function fcSay(id, text) { fcEl(id).textContent = text || ""; }
+function fcButtons(list) {
+  const box = fcEl("fcactions");
+  box.innerHTML = "";
+  for (const [label, fn, ghost] of list) {
+    const b = document.createElement("button");
+    b.className = "btn" + (ghost ? " ghost" : "");
+    b.textContent = label;
+    b.onclick = fn;
+    box.appendChild(b);
+  }
+}
+function fcProgress(frac, text) {
+  const p = fcEl("fcprogress");
+  p.style.display = frac === null ? "none" : "block";
+  if (frac !== null) p.value = frac;
+  fcSay("fcprogresstext", text);
+}
+function saveFile(name, bytes) {
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+function stamp() {
+  const d = new Date(), z = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
+}
+
+async function disconnect() {
+  try { if (reader) await reader.cancel(); } catch (e) { /* already gone */ }
+  try { if (writer) writer.releaseLock(); } catch (e) { /* ignore */ }
+  try { if (port) await port.close(); } catch (e) { /* ignore */ }
+  port = reader = writer = link = null;
+  fcEl("fcconnect").style.display = "";
+  fcEl("fcdisconnect").style.display = "none";
+  fcEl("fclogs").innerHTML = "";
+  fcButtons([]);
+  fcProgress(null, "");
+}
+
+async function connect() {
+  if (!("serial" in navigator)) {
+    fcSay("fcinfo", "This browser cannot talk to USB devices. Use Chrome or Edge on a computer.");
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+  } catch (e) { return; }  // the user closed the picker
+  try {
+    await port.open({ baudRate: 115200, bufferSize: 65536 });
+  } catch (e) {
+    fcSay("fcinfo", "Could not open the port: is a configurator or ground station still connected to it?");
+    port = null;
+    return;
+  }
+  fcEl("fcconnect").style.display = "none";
+  fcEl("fcdisconnect").style.display = "";
+  writer = port.writable.getWriter();
+  link = new Link((bytes) => writer.write(bytes));
+  reader = port.readable.getReader();
+  (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && link) link.feed(value);
+      }
+    } catch (e) { /* port closed or unplugged */ }
+  })();
+  try {
+    fcSay("fcinfo", "Identifying the flight controller");
+    const info = await detect(link, (m) => fcSay("fcstorage", m));
+    const board = info.board ? ` on ${info.board}` : "";
+    fcSay("fcinfo", `${info.firmware} ${info.version}${board}` + (info.vehicle ? ` (${info.vehicle})` : ""));
+    if (info.protocol === "msp") await showMsp(info);
+    else await showMavlink(info);
+  } catch (e) {
+    fcSay("fcstorage", e.message);
+  }
+}
+
+async function showMsp(info) {
+  fcSay("fcstorage", "Checking log storage");
+  const st = await mspStorage(link, info);
+  const ext = info.variant === "INAV" ? "TXT" : "BBL";
+  if (st.hasFlash) {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    if (!st.flash.used) {
+      fcSay("fcstorage", `Onboard flash: empty (${mb(st.flash.total)} MB chip). Fly with blackbox enabled, then connect again.`);
+      return;
+    }
+    fcSay("fcstorage", `Onboard flash: ${mb(st.flash.used)} MB of logs on a ${mb(st.flash.total)} MB chip.`);
+    fcButtons([["Download and analyse", async () => {
+      fcButtons([]);
+      try {
+        const data = await mspDownload(link, info, st.flash.used, fcProgress);
+        const name = `blackbox_${info.variant}_${stamp()}.${ext}`;
+        fcProgress(1, `Downloaded ${(data.length / 1048576).toFixed(1)} MB.`);
+        fcButtons([["Save the raw log", () => saveFile(name, data), true]]);
+        run(name, data.slice().buffer);
+      } catch (e) { fcProgress(null, "Download failed: " + e.message); }
+    }]]);
+  } else if (st.sd) {
+    fcSay("fcstorage", "This board logs to an SD card, which cannot be read over this connection.");
+    const actions = [];
+    if (info.variant === "BTFL") {
+      actions.push(["Open the SD card as a USB drive", async () => {
+        await mspRebootToMassStorage(link);
+        await disconnect();
+        fcSay("fcinfo", "The board is rebooting as a USB drive. Open it in your file manager, copy the newest .BFL file and drop it on this page.");
+      }]);
+    } else {
+      actions.push(["How to get SD card logs", () => fcSay("fcstorage", "In INAV Configurator use the CLI command `msc`, or take the card out and use a card reader, then drop the newest log on this page."), true]);
+    }
+    fcButtons(actions);
+  } else {
+    fcSay("fcstorage", "This board reports no blackbox storage (no flash chip and no SD card).");
+  }
+}
+
+async function showMavlink(info) {
+  fcSay("fcstorage", "Asking for the list of logs");
+  const logs = await mavListLogs(link, info, (m) => fcSay("fcstorage", m));
+  if (!logs.length) { fcSay("fcstorage", "No logs on the board yet."); return; }
+  fcSay("fcstorage", `${logs.length} log${logs.length > 1 ? "s" : ""} on the board. Pick one:`);
+  const table = fcEl("fclogs");
+  table.innerHTML = "";
+  const newest = logs[logs.length - 1].id;
+  for (const l of [...logs].reverse().slice(0, 30)) {
+    const when = l.time > 1e9 ? new Date(l.time * 1000).toLocaleString() : "";
+    const row = table.insertRow();
+    row.innerHTML = `<td><input type="radio" name="fclog" value="${l.id}" ${l.id === newest ? "checked" : ""}></td>` +
+      `<td>log ${l.id}</td><td>${(l.size / 1048576).toFixed(1)} MB</td><td>${when}</td>`;
+  }
+  const ext = info.autopilot === "px4" ? "ulg" : "bin";
+  fcButtons([["Download and analyse", async () => {
+    const id = Number(document.querySelector("input[name=fclog]:checked").value);
+    const entry = logs.find((l) => l.id === id);
+    fcButtons([]);
+    try {
+      const data = await mavDownload(link, info, entry, fcProgress);
+      const name = `log_${id}.${ext}`;
+      fcProgress(1, `Downloaded ${(data.length / 1048576).toFixed(1)} MB.`);
+      fcButtons([["Save the raw log", () => saveFile(name, data), true]]);
+      run(name, data.slice().buffer);
+    } catch (e) { fcProgress(null, "Download failed: " + e.message); }
+  }]]);
+}
+
+fcEl("fcconnect").onclick = connect;
+fcEl("fcdisconnect").onclick = disconnect;
+if (navigator.serial) navigator.serial.addEventListener("disconnect", (e) => { if (e.target === port) disconnect(); });
 
 // Start loading Python straight away so it is warm by the time a file arrives.
 setBusy(true, "Loading the analysis engine");

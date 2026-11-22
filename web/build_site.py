@@ -23,7 +23,7 @@ SAMPLES = [
 def main(out):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.makedirs(os.path.join(out, "samples"), exist_ok=True)
-    for name in ("index.html", "worker.js"):
+    for name in ("index.html", "worker.js", "fc.js"):
         shutil.copy(os.path.join(root, "web", name), out)
     for s in SAMPLES:
         shutil.copy(os.path.join(root, s), os.path.join(out, "samples"))

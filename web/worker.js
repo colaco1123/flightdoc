@@ -55,6 +55,7 @@ summary = [{"verdict": d.verdict,
             "session": d.flight.session,
             "firmware": d.flight.firmware_version or d.flight.firmware,
             "duration": round(d.flight.duration, 1),
+            "incident": d.incident is not None,
             "causes": [{"title": c.title, "severity": c.severity} for c in d.causes[:5]]}
            for d in diags]
 json.dumps({"html": render(diags), "summary": summary})

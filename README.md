@@ -2,7 +2,7 @@
 
 **Find out why your drone crashed.** Point it at a flight log and it tells you what went wrong, when, and what to check, instead of leaving you to scroll through forty graphs.
 
-**[Try it in your browser](https://colaco1123.github.io/flightdoc/)**: drop a log on the page, nothing to install. The analysis runs locally in the tab (Python via WebAssembly), so your log is never uploaded.
+**[Try it in your browser](https://colaco1123.github.io/flightdoc/)**: drop a log on the page, or plug your flight controller into USB and let the page pull the log off it. Nothing to install, and the analysis runs locally in the tab (Python via WebAssembly), so your log is never uploaded.
 
 Or install the command line tool:
 
@@ -128,6 +128,15 @@ for d in analyze("flight.ulg"):
 ```
 
 `d.to_dict()` gives the same content as `--json`.
+
+## Straight from the flight controller
+
+In Chrome or Edge, **Connect flight controller** on the web page opens the board over USB (Web Serial), works out what it is running, and downloads the log:
+
+- **Betaflight, INAV, EmuFlight and other MSP firmware**: reads the onboard flash with `MSP_DATAFLASH_READ` in 4 KB blocks. Betaflight and INAV answer this request differently (INAV only honours the block size when the request is exactly six bytes; Betaflight adds a length and compression header to the reply), and the code follows each firmware's source. Boards that log to an SD card are pointed at mass-storage mode instead, which Betaflight can switch to from the page.
+- **ArduPilot and PX4**: lists the logs with `LOG_REQUEST_LIST`, then downloads the one you pick with `LOG_REQUEST_DATA`, re-requesting any gaps. ArduPilot ignores log requests for a few seconds after boot, so the list request is repeated until it answers.
+
+You can save the raw log as well as the report. The protocol code is [`web/fc.js`](web/fc.js). It was tested against ArduPilot SITL and Betaflight SITL for detection and MAVLink download, and against [`tools/msp_emulator.py`](tools/msp_emulator.py), a fake Betaflight/INAV board written from the firmware source, for flash reads (byte-exact with 10% of replies dropped). It has not yet been run against every board out there, so reports from real hardware are welcome.
 
 ## The web version
 
