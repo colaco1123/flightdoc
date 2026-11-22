@@ -79,3 +79,27 @@ def test_never_armed_log_says_so():
     f.add("battery", t, volt=np.full(t.size, 16.8))
     f.duration = 10.0
     assert "never armed" in diagnose(f).verdict
+
+
+def test_failed_hand_launch_is_explained():
+    """Throttle held low, punched at the last moment, rolls off, hits the ground."""
+    from flightdoc.analysis import diagnose
+    from flightdoc.model import Flight
+    f = Flight(source="synthetic", firmware="inav", vehicle="plane")
+    t = np.arange(0, 9, 0.01)
+    thr = np.where(t < 7.5, np.where(t > 1.0, 0.35, 0.0), 1.0)
+    f.add("throttle", t, thr=thr)
+    f.add("motors", t, m1=thr, m2=thr)
+    roll = np.where(t > 7.6, -70.0, 0.0)
+    f.add("att", t, roll=roll, pitch=np.full(t.size, 10.0), yaw=np.zeros(t.size))
+    alt = np.where(t > 7.0, 1.5, 0.0) + np.where((t > 5) & (t < 5.05), 18.0, 0.0)  # a baro spike
+    f.add("alt", t, alt=alt)
+    acc = np.zeros((t.size, 3)); acc[:, 2] = 9.81
+    acc[(t > 7.88) & (t < 7.9), 0] = 60.0
+    f.add("accel", t, x=acc[:, 0], y=acc[:, 1], z=acc[:, 2])
+    f.armed = [(0.0, 8.0)]
+    f.duration = 9.0
+    d = diagnose(f)
+    assert d.causes and d.causes[0].check == "launch"
+    assert "full power came too late" in d.causes[0].title
+    assert "rolled off to the left" in d.causes[0].title

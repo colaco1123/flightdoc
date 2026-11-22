@@ -24,6 +24,13 @@ VIBE_WARN = 30.0   # m/s^2, ArduPilot's "probably a problem" level
 VIBE_BAD = 60.0    # m/s^2, "almost certainly a problem"
 
 
+def _before(df, inc: Optional[Incident]):
+    """Drop the crash itself: an impact and the tumble after it are not vibration."""
+    if inc is None or df.empty:
+        return df
+    return df[df["t"] < inc.t - 0.5]
+
+
 def _ap_style_vibe(acc: np.ndarray, fs: float) -> np.ndarray:
     """Vibration metric in the spirit of ArduPilot's VIBE: the RMS of what is
     left after removing the slow (<5 Hz) part of the accelerometer signal."""
@@ -33,18 +40,19 @@ def _ap_style_vibe(acc: np.ndarray, fs: float) -> np.ndarray:
 
 @check("vibration")
 def vibration(f: Flight, inc: Optional[Incident]) -> List[Finding]:
-    if f.has("vibe", "x", "y", "z"):
-        v = flight_window(f, f.signals["vibe"])
+    if f.has("vibe") and any(c in f.signals["vibe"] for c in ("x", "y", "z", "total")):
+        v = _before(flight_window(f, f.signals["vibe"]), inc)
         if len(v) < 5:
             return []
         t = v["t"].to_numpy()
-        level = v[["x", "y", "z"]].max(axis=1).to_numpy()
-        axis_peak = v[["x", "y", "z"]].max()
+        axes = [c for c in ("x", "y", "z", "total") if c in v]
+        level = v[axes].max(axis=1).to_numpy()
+        axis_peak = v[axes].max()
         clip = v["clip"].to_numpy() if "clip" in v else np.zeros_like(level)
         clips = float(clip.max() - clip.min()) if clip.size else 0.0
-        source = "VIBE"
+        source = "accVib" if axes == ["total"] else "VIBE"
     elif f.has("accel", "x", "y", "z") and f.firmware in ("px4", "ardupilot"):
-        a = flight_window(f, f.signals["accel"])
+        a = _before(flight_window(f, f.signals["accel"]), inc)
         fs = sample_rate(a["t"].to_numpy())
         if len(a) < 200 or fs < 100:
             return []
@@ -62,7 +70,9 @@ def vibration(f: Flight, inc: Optional[Incident]) -> List[Finding]:
 
     if level.size == 0:
         return []
-    worst_axis = max("xyz", key=lambda ax: float(axis_peak[ax]))
+    axes = [c for c in ("x", "y", "z", "total") if c in axis_peak]
+    worst_axis = max(axes, key=lambda ax: float(axis_peak[ax]))
+    axis_name = "combined" if worst_axis == "total" else worst_axis.upper()
     p95 = float(np.percentile(level, 95))
     frac_warn = float((level > VIBE_WARN).mean())
     frac_bad = float((level > VIBE_BAD).mean())
@@ -86,7 +96,7 @@ def vibration(f: Flight, inc: Optional[Incident]) -> List[Finding]:
 
     ev = [f"95th percentile vibration {p95:.0f} m/s/s (above {VIBE_WARN:.0f} is a problem, "
           f"above {VIBE_BAD:.0f} is severe)",
-          f"worst axis: {worst_axis.upper()} at {float(axis_peak[worst_axis]):.0f} m/s/s peak",
+          f"worst axis: {axis_name} at {float(axis_peak[worst_axis]):.0f} m/s/s peak",
           f"{frac_warn:.0%} of the flight above {VIBE_WARN:.0f} m/s/s"]
     if clips:
         ev.append(f"accelerometer clipped {clips:.0f} times in flight (sensor saturated)")
@@ -107,11 +117,11 @@ def vibration(f: Flight, inc: Optional[Incident]) -> List[Finding]:
         title="High vibration" if sev != "ok" else "Vibration within limits",
         severity=sev,
         summary=(f"Vibration from the {source} data is {'severe' if sev == 'critical' else 'high'} "
-                 f"({p95:.0f} m/s/s typical peak, worst on {worst_axis.upper()})"
+                 f"({p95:.0f} m/s/s typical peak, worst on {axis_name})"
                  if sev != "ok" else f"Vibration stayed below {VIBE_WARN:.0f} m/s/s ({p95:.0f} typical)"),
-        confidence=0.85 if source == "VIBE" else 0.65,
+        confidence=0.85 if source in ("VIBE", "accVib") else 0.65,
         evidence=ev, advice=advice, t0=t0, t1=t1,
-        plot=Plot([Panel("vibe", ["x", "y", "z"], "vibration, m/s/s",
+        plot=Plot([Panel("vibe", axes, "vibration, m/s/s",
                          hlines=[(VIBE_WARN, "warn"), (VIBE_BAD, "bad")])]),
         refs=[AP_VIBE_DOC, AP_ISOLATION_DOC] if f.firmware == "ardupilot" else [PX4_VIBE_DOC, AP_VIBE_DOC],
         data={"vibe_p95": p95, "clips": clips, "frac_above_30": frac_warn},
@@ -128,7 +138,7 @@ def gyro_noise(f: Flight, inc: Optional[Incident]) -> List[Finding]:
     """
     if not f.has("gyro", "x", "y", "z"):
         return []
-    g = flight_window(f, f.signals["gyro"])
+    g = _before(flight_window(f, f.signals["gyro"]), inc)
     if len(g) < 500:
         return []
     fs = sample_rate(g["t"].to_numpy())

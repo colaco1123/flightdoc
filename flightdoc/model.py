@@ -15,7 +15,8 @@ att      roll, pitch, yaw, des_roll, des_pitch, des_yaw      deg
 rate     roll, pitch, yaw, des_roll, des_pitch, des_yaw      deg/s
 gyro     x, y, z  (raw, high rate if available)               deg/s
 accel    x, y, z  (raw, high rate if available)               m/s^2
-vibe     x, y, z  (ArduPilot style vibration level), clip     m/s^2, count
+vibe     x, y, z and/or total (ArduPilot style vibration), clip  m/s^2, count
+sticks   roll, pitch, yaw  pilot stick deflection           -1..1
 motors   m1 .. mN normalised command, 0 = idle/min, 1 = max
 erpm     m1 .. mN  motor speed telemetry (relative units)
 throttle thr  pilot or controller throttle demand             0..1

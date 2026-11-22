@@ -157,6 +157,17 @@ def _to_flight(s: BlackboxSession, source: str) -> Flight:
         k = 9.80665 / acc_1g
         f.add("accel", t, x=acc[0] * k, y=acc[1] * k, z=acc[2] * k)
 
+    # INAV logs a combined vibration level computed like ArduPilot's VIBE
+    # (accelerometer minus a slow floor, RMS), scaled by acc_1G.
+    vib = col("accVib")
+    if vib is not None and acc_1g > 0:
+        f.add("vibe", t, total=vib / acc_1g * 9.80665)
+
+    # stick deflection, -1..1 (rcCommand is +-500 around centre)
+    sticks = {ax: col(f"rcCommand[{i}]") for i, ax in enumerate(("roll", "pitch", "yaw"))}
+    if all(v is not None for v in sticks.values()):
+        f.add("sticks", t, **{ax: np.clip(v / 500.0, -1, 1) for ax, v in sticks.items()})
+
     att = [col(f"attitude[{i}]") for i in range(3)]
     if all(a is not None for a in att):  # INAV, decidegrees
         f.add("att", t, roll=att[0] / 10, pitch=att[1] / 10, yaw=att[2] / 10)

@@ -38,10 +38,11 @@ Example reports from the test logs are in [`examples/`](examples).
 | ESC desync | Motor commanded hard while its RPM telemetry collapses | BF (bidir DShot), AP (ESC telemetry) |
 | Thrust headroom | Hover throttle too high, all motors saturated together | all |
 | Motor balance | One motor working harder in calm flight: CG offset, weak motor, twisted mounts | all multirotors |
-| Vibration | VIBE levels and accelerometer clipping (ArduPilot thresholds) | AP, PX4 |
+| Vibration | VIBE levels and accelerometer clipping (ArduPilot thresholds); INAV's `accVib` on the same scale | AP, PX4, INAV |
 | Gyro noise | High-frequency noise reaching the PID loop, with the dominant frequency | BF, INAV, PX4 |
 | Oscillation | Narrow-band oscillation in the rate tracking error that the pilot did not command | all |
 | Attitude control | Large sustained gap between target and actual attitude | all |
+| Fixed-wing launch | Plane hits the ground before climbing away: throttle held low then punched too late, roll-off, nose-high, big pitch input at low speed | fixed wing |
 | Battery | Cell count, sag under load, pack resistance, voltage at the incident, battery failsafes | all |
 | Board power | Flight controller supply rail dips (brownout risk) | AP, PX4 |
 | Power loss | Log stops mid-air with the motors running (and tells this apart from a full flash chip) | all |
