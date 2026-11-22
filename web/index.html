@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>flightdoc: why did my drone crash?</title>
+<meta name="description" content="Drop an ArduPilot, PX4, Betaflight or INAV log and get a ranked diagnosis of what went wrong. Runs entirely in your browser.">
+<style>
+:root{--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--bg:#f9fafb;--accent:#1d4ed8;--crit:#b91c1c;--warn:#b45309}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+header,main{max-width:960px;margin:0 auto;padding:0 20px}
+header{padding-top:40px}
+h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+.lede{color:var(--muted);margin:0 0 4px;font-size:16px}
+.fw{color:var(--muted);font-size:13px;margin:0}
+#drop{display:block;margin:28px 0 12px;border:2px dashed #cbd5e1;border-radius:12px;background:#fff;padding:44px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop:hover,#drop.over{border-color:var(--accent);background:#eff6ff}
+#drop strong{font-size:17px;display:block;margin-bottom:6px}
+#drop span{color:var(--muted);font-size:14px}
+#file{display:none}
+.samples{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px;color:var(--muted)}
+.samples button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;cursor:pointer;color:var(--ink)}
+.samples button:hover{border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.5;cursor:wait}
+#status{margin:22px 0 0;display:none;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+#status.on{display:flex}
+.spin{width:16px;height:16px;border:2px solid #cbd5e1;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;flex:none}
+@keyframes s{to{transform:rotate(360deg)}}
+#error{display:none;margin:20px 0;padding:14px 16px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#7f1d1d;font-size:14px}
+#result{display:none;margin:26px 0 0}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.verdict{font-size:18px;font-weight:600}
+.bar a{font-size:14px;color:var(--accent);text-decoration:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px}
+iframe{width:100%;height:80vh;border:1px solid var(--line);border-radius:10px;background:#fff}
+.privacy{margin:28px 0 10px;font-size:13px;color:var(--muted)}
+footer{max-width:960px;margin:0 auto;padding:10px 20px 40px;font-size:13px;color:var(--muted)}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>flightdoc</h1>
+  <p class="lede">Drop a flight log, find out why it crashed.</p>
+  <p class="fw">ArduPilot <code>.bin</code> · PX4 <code>.ulg</code> · Betaflight <code>.bbl</code> <code>.bfl</code> · INAV <code>.txt</code> · gzipped logs</p>
+</header>
+<main>
+  <label id="drop" for="file">
+    <strong>Drop your log here, or click to choose a file</strong>
+    <span>Nothing is uploaded. The analysis runs in this tab.</span>
+  </label>
+  <input id="file" type="file" accept=".bin,.BIN,.ulg,.bbl,.BBL,.bfl,.BFL,.txt,.TXT,.csv,.gz">
+  <div class="samples">No log handy? Try one:
+    <button data-sample="motor_failure.bin.gz">Motor failure (ArduPilot)</button>
+    <button data-sample="crashing-LOG00002.BFL.gz">Won't take off (EmuFlight)</button>
+    <button data-sample="px4_gps_loss.ulg.gz">GPS loss (PX4)</button>
+    <button data-sample="compass_interference.bin.gz">Compass interference (ArduPilot)</button>
+  </div>
+  <div id="status"><div class="spin"></div><span id="statustext">Starting</span></div>
+  <div id="error"></div>
+  <section id="result">
+    <div class="bar"><div class="verdict" id="verdict"></div><a id="download" download>Download report</a></div>
+    <iframe id="report" title="flightdoc report" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+  </section>
+  <p class="privacy">Your log stays on your computer: Python runs inside the browser through WebAssembly (Pyodide), so the first run downloads about 30 MB of libraries, then it is cached. Diagnosis is automated; confirm it on the craft before you fly again.</p>
+</main>
+<footer>Open source on <a href="https://github.com/colaco1123/flightdoc">GitHub</a>. Got a crash log with a known cause that flightdoc gets wrong? <a href="https://github.com/colaco1123/flightdoc/issues">Open an issue</a>.</footer>
+<script>
+const params = new URLSearchParams(location.search);
+const $ = (id) => document.getElementById(id);
+const drop = $("drop"), file = $("file"), statusEl = $("status"), statusText = $("statustext");
+const errorEl = $("error"), result = $("result");
+let busy = false, lastUrl = null, pending = null;
+
+const worker = new Worker("worker.js", { type: "module" });
+const booted = fetch("wheel.json").then(r => r.json()).then(info => {
+  worker.postMessage({ type: "init", wheels: info.wheels.map(w => new URL(w, location.href).href),
+                       pyodideUrl: params.get("pyodide") || undefined });
+});
+
+function setBusy(on, text) {
+  busy = on;
+  statusEl.classList.toggle("on", on);
+  if (text) statusText.textContent = text;
+  document.querySelectorAll(".samples button").forEach(b => b.disabled = on);
+}
+function showError(text) {
+  errorEl.textContent = text;
+  errorEl.style.display = "block";
+}
+
+worker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.type === "progress") statusText.textContent = m.text;
+  else if (m.type === "ready") { if (!pending) setBusy(false); }
+  else if (m.type === "error") { setBusy(false); pending = null; showError("Could not analyse this file: " + m.text); console.error(m.detail); }
+  else if (m.type === "result") {
+    setBusy(false); pending = null;
+    const first = m.summary[0];
+    $("verdict").textContent = first ? first.verdict + (m.summary.length > 1 ? `  (+${m.summary.length - 1} more flights in the report)` : "")
+                                     : "No flights found in this file.";
+    const blob = new Blob([m.html], { type: "text/html" });
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(blob);
+    const dl = $("download");
+    dl.href = lastUrl;
+    dl.download = m.name.replace(/(\.gz)?$/i, "").replace(/\.[^.]+$/, "") + "-flightdoc.html";
+    // links in the report (firmware docs) should open in a new tab, not inside the frame
+    $("report").srcdoc = m.html.replace("<head>", '<head><base target="_blank">');
+    result.style.display = "block";
+    result.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+};
+worker.onerror = (e) => { setBusy(false); showError("The analysis engine failed to start: " + e.message); };
+
+async function run(name, bytes) {
+  if (busy && pending) return;
+  errorEl.style.display = "none";
+  pending = name;
+  setBusy(true, "Getting ready");
+  await booted;
+  worker.postMessage({ type: "analyze", name, bytes }, [bytes]);
+}
+
+file.addEventListener("change", async () => {
+  const f = file.files[0];
+  if (f) run(f.name, await f.arrayBuffer());
+  file.value = "";
+});
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", async (e) => {
+  const f = e.dataTransfer.files[0];
+  if (f) run(f.name, await f.arrayBuffer());
+});
+document.querySelectorAll(".samples button").forEach(b => b.addEventListener("click", async () => {
+  const name = b.dataset.sample;
+  setBusy(true, "Fetching sample log");
+  try {
+    const r = await fetch("samples/" + name);
+    if (!r.ok) throw new Error(r.status + " " + r.statusText);
+    run(name, await r.arrayBuffer());
+  } catch (err) { setBusy(false); showError("Could not fetch the sample: " + err.message); }
+}));
+
+// Start loading Python straight away so it is warm by the time a file arrives.
+setBusy(true, "Loading the analysis engine");
+</script>
+</body>
+</html>

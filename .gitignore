@@ -7,4 +7,6 @@ dist/
 .venv/
 *.html
 !examples/*.html
+!web/index.html
 /reports/
+/site/

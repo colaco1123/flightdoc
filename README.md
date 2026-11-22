@@ -2,6 +2,10 @@
 
 **Find out why your drone crashed.** Point it at a flight log and it tells you what went wrong, when, and what to check, instead of leaving you to scroll through forty graphs.
 
+**[Try it in your browser](https://colaco1123.github.io/flightdoc/)**: drop a log on the page, nothing to install. The analysis runs locally in the tab (Python via WebAssembly), so your log is never uploaded.
+
+Or install the command line tool:
+
 ```
 pip install git+https://github.com/colaco1123/flightdoc
 flightdoc 00000042.BIN -o report.html
@@ -124,6 +128,15 @@ for d in analyze("flight.ulg"):
 
 `d.to_dict()` gives the same content as `--json`.
 
+## The web version
+
+[`web/`](web) is a static page that runs the same package in the browser with [Pyodide](https://pyodide.org). A worker loads Python, numpy, pandas, scipy and matplotlib from the Pyodide CDN, installs the flightdoc and pyulog wheels served next to the page, and renders the same HTML report. The [`web app`](.github/workflows/pages.yml) workflow rebuilds and deploys it to GitHub Pages on every push. To run it locally:
+
+```
+python web/build_site.py site
+python -m http.server -d site 8000
+```
+
 ## Help it get better
 
 If flightdoc gets your crash wrong, open an issue with the log (or a link to it) and what actually happened. Logs with a known cause are the most useful thing you can contribute: each one becomes a test.
@@ -133,6 +146,7 @@ If flightdoc gets your crash wrong, open an issue with the log (or a link to it)
 Projects this builds on or was checked against:
 
 - [ArduPilot](https://github.com/ArduPilot/ardupilot): DataFlash format, SITL used for the fault scenarios, and the vibration, EKF, compass and thrust-loss guidance in the [Copter docs](https://ardupilot.org/copter/docs/common-diagnosing-problems-using-logs.html)
+- [Pyodide](https://github.com/pyodide/pyodide): runs the web version in the browser
 - [PX4 Autopilot](https://github.com/PX4/PX4-Autopilot): ULog format, SIH simulator used for the PX4 scenarios, [log analysis docs](https://docs.px4.io/main/en/log/flight_log_analysis.html)
 - [pyulog](https://github.com/PX4/pyulog): ULog parsing (dependency)
 - [pymavlink](https://github.com/ArduPilot/pymavlink): used in the tests to cross-check the DataFlash reader, and by the SITL scripts
