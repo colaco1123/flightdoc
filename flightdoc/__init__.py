@@ -5,7 +5,7 @@
     ...     print(d.verdict)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .analysis import Diagnosis, analyze, diagnose  # noqa: E402
 from .formats import load  # noqa: E402

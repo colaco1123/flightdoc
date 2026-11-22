@@ -74,7 +74,7 @@ const errorEl = $("error"), result = $("result");
 let busy = false, lastUrl = null, pending = null;
 
 const worker = new Worker("worker.js", { type: "module" });
-const booted = fetch("wheel.json").then(r => r.json()).then(info => {
+const booted = fetch("wheel.json", { cache: "no-cache" }).then(r => r.json()).then(info => {
   worker.postMessage({ type: "init", wheels: info.wheels.map(w => new URL(w, location.href).href),
                        pyodideUrl: params.get("pyodide") || undefined });
 });

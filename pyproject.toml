@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flightdoc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find out why your drone crashed: automatic diagnosis of ArduPilot, PX4, Betaflight and INAV logs"
 readme = "README.md"
 license = { text = "MIT" }
